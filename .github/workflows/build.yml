@@ -29,7 +29,7 @@ jobs:
         run: |
           mkdir -p clang
           curl -sSL -o clang.tar.xz \
-            https://github.com/Impqxr/aosp_clang_ci/releases/download/13289611/clang-13289611-linux-x86.tar.xz"
+            https://github.com/Impqxr/aosp_clang_ci/releases/download/13289611/clang-13289611-linux-x86.tar.xz
 
           tar -xzf clang.tar.xz -C clang
           echo "$PWD/clang/bin" >> "$GITHUB_PATH"
