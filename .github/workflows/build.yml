@@ -1,21 +1,8 @@
-name: Build fgetpriority LKM
-
-on:
-  workflow_dispatch:
-  push:
-    branches: [ main ]
-
-env:
-  KERNEL_REPO: https://github.com/fredslbn/superchime.git   # change to your target kernel
-  KERNEL_BRANCH: bbrv3                                   # change to match your device/GKI branch
-  ARCH: arm64
-
-
 name: Android 13 - Linux 4.19 ARM64
 
 on:
+  workflow_call:
   workflow_dispatch:
-  push:
     paths:
       - ".github/workflows/build.yml"
       - "module-safe/**"
@@ -31,8 +18,8 @@ jobs:
     env:
       ARCH: arm64
       LLVM: "1"
-      KERNEL_REPO: https://github.com/fredslbn/superchime.git
-      KERNEL_REF: bbrv3
+      KERNEL_REPO: "https://github.com/fredslbn/superchime.git"
+      KERNEL_REF: "bbrv3"
       DEFCONFIG: vendor/bengal-perf_defconfig
       MODULE_DIR: module-safe
 
