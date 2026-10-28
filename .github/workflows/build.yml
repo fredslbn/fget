@@ -22,6 +22,7 @@ jobs:
       KERNEL_REF: "bbrv3"
       DEFCONFIG: vendor/bengal-perf_defconfig
       MODULE_DIR: module-safe
+      CLANG_SOURCE: "https://github.com/Impqxr/aosp_clang_ci/releases/download/13289611/clang-13289611-linux-x86.tar.xz"
 
     steps:
       - name: Checkout module repository
@@ -38,6 +39,17 @@ jobs:
             python3 pahole perl \
             cpio rsync unzip
 
+      - name: Set Compile Environment
+        shell: bash
+        run: |
+          cd $GITHUB_WORKSPACE
+          
+          curl -C - --progress-bar -L "$1" -o "$2" "$CLANG_SOURCE" clang.tar.gz
+                mkdir clang-custom
+                tar -C clang-custom/ -zxf clang.tar.gz
+          
+          export PATH=$GITHUB_WORKSPACE/clang-custom/bin:$PATH
+      
       - name: Validate repository settings
         run: |
           test -n "$KERNEL_REPO" || {
