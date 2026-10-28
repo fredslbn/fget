@@ -10,53 +10,134 @@ env:
   KERNEL_BRANCH: bbrv3                                   # change to match your device/GKI branch
   ARCH: arm64
 
+
+name: Android 13 - Linux 4.19 ARM64
+
+on:
+  workflow_dispatch:
+  push:
+    paths:
+      - ".github/workflows/build.yml"
+      - "module-safe/**"
+
+permissions:
+  contents: read
+
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
+    timeout-minutes: 360
+
+    env:
+      ARCH: arm64
+      LLVM: "1"
+      KERNEL_REPO: https://github.com/fredslbn/superchime.git
+      KERNEL_REF: bbrv3
+      DEFCONFIG: vendor/bengal-perf_defconfig
+      MODULE_DIR: module-safe
+
     steps:
-      - name: Checkout fgetpriority
+      - name: Checkout module repository
         uses: actions/checkout@v4
         with:
-          path: fgetpriority
+          path: project
 
-      - name: Install build deps
+      - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev \
-                                   python3 git curl rsync cpio
+          sudo apt-get install -y \
+            git make bc bison flex \
+            libssl-dev libelf-dev \
+            python3 pahole perl \
+            cpio rsync unzip
 
-      - name: Fetch a matching ARM64 Clang toolchain
+      - name: Validate repository settings
         run: |
-          mkdir -p clang
-          curl -sSL -o clang.tar.xz \
-            https://github.com/Impqxr/aosp_clang_ci/releases/download/13289611/clang-13289611-linux-x86.tar.xz
+          test -n "$KERNEL_REPO" || {
+            echo "Missing KERNEL_REPO repository variable"
+            exit 1
+          }
+          test -n "$KERNEL_REF" || {
+            echo "Missing KERNEL_REF repository variable"
+            exit 1
+          }
+          test -n "$DEFCONFIG" || {
+            echo "Missing DEFCONFIG repository variable"
+            exit 1
+          }
 
-          tar -xzf clang.tar.xz -C clang
-          echo "$PWD/clang/bin" >> "$GITHUB_PATH"
-
-      - name: Checkout kernel source
+      - name: Clone kernel source
         run: |
-          git clone --depth=1 -b "$KERNEL_BRANCH" "$KERNEL_REPO" kernel_src
+          git clone \
+            --depth=1 \
+            --branch "$KERNEL_REF" \
+            "$KERNEL_REPO" kernel
 
-      - name: Prepare kernel config/headers
-        working-directory: kernel_src
+      - name: Record kernel revision
         run: |
-          make ARCH=$ARCH CC=clang O=out vendor/bengal_perf-defconfig
-          # ensure the option this module needs is enabled
-          echo "CONFIG_KALLSYMS_ALL=y" >> out/.config
-          make ARCH=$ARCH CC=clang O=out olddefconfig
-          make ARCH=$ARCH CC=clang O=out modules_prepare
+          git -C kernel rev-parse HEAD \
+            | tee kernel-commit.txt
 
-      - name: Build fgetpriority.ko
+      - name: Configure kernel
         run: |
-          make -C kernel_src O=$PWD/kernel_src/out \
-            M=$PWD/fgetpriority/kernel \
-            ARCH=$ARCH CC=clang \
-            CONFIG_FGETPRIORITY=m modules
+          mkdir -p out
+          make -C kernel \
+            O="$GITHUB_WORKSPACE/out" \
+            ARCH=arm64 LLVM=1 \
+            "$DEFCONFIG"
 
-      - name: Upload artifact
+      - name: Enable external module support
+        run: |
+          grep -q '^CONFIG_MODULES=y' out/.config || {
+            echo "CONFIG_MODULES is disabled in this defconfig"
+            exit 1
+          }
+
+      - name: Build kernel and modules
+        run: |
+          make -C kernel \
+            O="$GITHUB_WORKSPACE/out" \
+            ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            -j"$(nproc)" \
+            Image modules dtbs
+
+      - name: Verify kernel artifacts
+        run: |
+          test -s out/arch/arm64/boot/Image
+          test -s out/Module.symvers
+          grep -E \
+            '^(CONFIG_MODULES|CONFIG_MODVERSIONS|CONFIG_MODULE_SIG)=' \
+            out/.config || true
+
+      - name: Build external module
+        run: |
+          test -f "project/$MODULE_DIR/Makefile" || {
+            echo "External module Makefile not found"
+            exit 1
+          }
+
+          make -C kernel \
+            O="$GITHUB_WORKSPACE/out" \
+            M="$GITHUB_WORKSPACE/project/$MODULE_DIR" \
+            ARCH=arm64 LLVM=1 LLVM_IAS=1 \
+            -j"$(nproc)" \
+            modules
+
+      - name: Collect build artifacts
+        if: success()
+        run: |
+          mkdir -p artifacts
+          cp out/arch/arm64/boot/Image artifacts/
+          find "project/$MODULE_DIR" \
+            -type f -name '*.ko' \
+            -exec cp {} artifacts/ \;
+          cp kernel-commit.txt artifacts/
+
+      - name: Upload artifacts
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: fgetpriority-ko
-          path: fgetpriority/kernel/*.ko
-          
+          name: android13-linux419-arm64
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 1
